@@ -51,6 +51,9 @@ const centreY = joystickbit.getRockerValue(joystickbit.rockerType.Y)
 let ticksLeft = 0
 let ticksRight = 0
 let carFlags = 0
+let rawPins = 0          // diagnostic: bit0 = P14, bit1 = P15 on the car
+let expanderByte = 0     // diagnostic: the car's I/O expander, all 8 bits
+let logLines: string[] = []
 let lastStatusMs = -10000
 
 let state = S_DIST_READY
@@ -95,6 +98,24 @@ function testDrive(left: number, right: number, tenths: number) {
     radio.sendBuffer(b)
 }
 
+// Keep every result and re-print the whole log each time, so a console
+// that connects late still gets everything
+function logResult(line: string) {
+    logLines.push(line)
+    serial.writeLine("--- log ---")
+    for (let i = 0; i < logLines.length; i++) {
+        serial.writeLine(logLines[i])
+    }
+}
+
+function bits8(v: number): string {
+    let t = ""
+    for (let b = 7; b >= 0; b--) {
+        t = t + ((v >> b) & 1)
+    }
+    return t
+}
+
 function runIsForward(): boolean {
     return runNo % 2 == 1
 }
@@ -125,7 +146,7 @@ joystickbit.onButtonEvent(joystickbit.JoystickBitPin.P12, joystickbit.ButtonType
         resetOdo()
         state = S_SPINNING
     } else if (state == S_SPINNING) {
-        serial.writeLine("spin," + spinNo + "," + (spinNo == 1 ? "left" : "right") + "," + ticksLeft + "," + ticksRight)
+        logResult("spin," + spinNo + "," + (spinNo == 1 ? "left" : "right") + "," + ticksLeft + "," + ticksRight)
         if (spinNo < 2) {
             spinNo++
             state = S_SPIN_READY
@@ -149,6 +170,10 @@ radio.onReceivedBuffer(function (buf: Buffer) {
     ticksLeft = buf.getNumber(NumberFormat.Int32LE, 1)
     ticksRight = buf.getNumber(NumberFormat.Int32LE, 5)
     carFlags = buf.getNumber(NumberFormat.UInt8LE, 10)
+    if (buf.length >= 13) {
+        rawPins = buf.getNumber(NumberFormat.UInt8LE, 11)
+        expanderByte = buf.getNumber(NumberFormat.UInt8LE, 12)
+    }
     lastStatusMs = input.runningTime()
 })
 
@@ -183,7 +208,7 @@ basic.forever(function () {
         const finished = seenTestFlag && (carFlags & 2) == 0
         if (finished || elapsed > RUN_TENTHS * 100 + 2000) {
             basic.pause(SETTLE_MS)                 // let it roll to a stop
-            serial.writeLine("run," + runNo + "," + (runIsForward() ? "fwd" : "back") + "," + ticksLeft + "," + ticksRight)
+            logResult("run," + runNo + "," + (runIsForward() ? "fwd" : "back") + "," + ticksLeft + "," + ticksRight)
             state = S_DIST_DONE
         }
     }
@@ -227,10 +252,11 @@ basic.forever(function () {
     kitronik_VIEW128x64.show(padRight(title, 25), 1)
     if (input.runningTime() - lastStatusMs > STATUS_TIMEOUT_MS) {
         kitronik_VIEW128x64.show(padRight("NO CAR DATA", 12), 2, leftAlign, big)
-        kitronik_VIEW128x64.show(padRight("", 12), 3, leftAlign, big)
+        kitronik_VIEW128x64.show(padRight("", 25), 5)
     } else {
-        kitronik_VIEW128x64.show(padRight("L " + ticksLeft, 12), 2, leftAlign, big)
-        kitronik_VIEW128x64.show(padRight("R " + ticksRight, 12), 3, leftAlign, big)
+        kitronik_VIEW128x64.show(padRight("L" + ticksLeft + " R" + ticksRight, 12), 2, leftAlign, big)
+        // raw: wheel pins P14/P15, then the I/O expander bits 7..0
+        kitronik_VIEW128x64.show(padRight("P14:" + (rawPins & 1) + " P15:" + ((rawPins >> 1) & 1) + " X:" + bits8(expanderByte), 25), 5)
     }
     kitronik_VIEW128x64.show(padRight(msg, 25), 7)
     kitronik_VIEW128x64.show(padRight(hint, 25), 8)

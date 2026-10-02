@@ -1,5 +1,5 @@
 // =====================================================================
-// CAR  -  micro:bit v1 in the Joy-Car  -  Step 3a: wheel ticks + IR status
+// CAR  -  micro:bit v1 in the Joy-Car  -  Step 3a: wheel ticks + IR status (diagnostic: polled ticks, raw pins)
 // MakeCode JavaScript. Extension needed: "Joy-Car" (joy-it/Joy-Car)
 //
 // Does:   drives from joystick packets,
@@ -18,7 +18,7 @@ const MSG_SWEEP_REQUEST = 4  // controller -> car : [4, stepDeg]
 const MSG_SWEEP_DATA = 5     // car -> controller : [5, sweepId, firstIndex, count, stepDeg, dist:uint16LE * count]
 const MSG_SERVO_TRIM = 6     // controller -> car : [6, nudge:int8]
 const MSG_TRIM_VALUE = 7     // car -> controller : [7, offset:int8]
-const MSG_STATUS = 8         // car -> controller : [8, left:int32LE, right:int32LE, ir:uint8, flags:uint8]
+const MSG_STATUS = 8         // car -> controller : [8, left:int32LE, right:int32LE, ir:uint8, flags:uint8, rawPins:uint8, expander:uint8]
                              //   ir bit0 = left obstacle, bit1 = right obstacle
                              //   flags bit0 = scanning, bit1 = test drive running
 const MSG_RESET_ODO = 9      // controller -> car : [9, 0]  set both tick counters to 0
@@ -48,7 +48,6 @@ const STATUS_INTERVAL_MS = 100
 // (On older boards they sit on the I/O expander instead - tell Claude if so.)
 const SPEED_LEFT = DigitalPin.P14
 const SPEED_RIGHT = DigitalPin.P15
-const MIN_PULSE_US = 300     // ignore glitches shorter than this
 const TRIG = DigitalPin.P8
 const ECHO = DigitalPin.P12
 
@@ -280,18 +279,28 @@ basic.forever(function () {
     basic.pause(20)
 })
 
-// ---- Wheel ticks: count both edges of every slot in the encoder disc ----
-pins.onPulsed(SPEED_LEFT, PulseValue.High, function () {
-    if (pins.pulseDuration() >= MIN_PULSE_US) ticksLeft += dirLeft
-})
-pins.onPulsed(SPEED_LEFT, PulseValue.Low, function () {
-    if (pins.pulseDuration() >= MIN_PULSE_US) ticksLeft += dirLeft
-})
-pins.onPulsed(SPEED_RIGHT, PulseValue.High, function () {
-    if (pins.pulseDuration() >= MIN_PULSE_US) ticksRight += dirRight
-})
-pins.onPulsed(SPEED_RIGHT, PulseValue.Low, function () {
-    if (pins.pulseDuration() >= MIN_PULSE_US) ticksRight += dirRight
+// ---- Wheel ticks (DIAGNOSTIC version): poll the pins about every 1 ms and
+// count every change. Pull-ups on, in case the sensors only pull down.
+let rawLeft = pins.digitalReadPin(SPEED_LEFT)      // makes the pins digital inputs...
+let rawRight = pins.digitalReadPin(SPEED_RIGHT)
+pins.setPull(SPEED_LEFT, PinPullMode.PullUp)        // ...then the pull-ups stick
+pins.setPull(SPEED_RIGHT, PinPullMode.PullUp)
+rawLeft = pins.digitalReadPin(SPEED_LEFT)
+rawRight = pins.digitalReadPin(SPEED_RIGHT)
+control.inBackground(function () {
+    while (true) {
+        const l = pins.digitalReadPin(SPEED_LEFT)
+        if (l != rawLeft) {
+            rawLeft = l
+            ticksLeft += dirLeft
+        }
+        const r = pins.digitalReadPin(SPEED_RIGHT)
+        if (r != rawRight) {
+            rawRight = r
+            ticksRight += dirRight
+        }
+        basic.pause(1)
+    }
 })
 
 // ---- Status to the controller, 10 times a second (also while scanning) ----
@@ -304,7 +313,7 @@ basic.forever(function () {
     let irBits = 0
     if ((expander & 0x20) == 0) irBits += 1
     if ((expander & 0x40) == 0) irBits += 2
-    const st = pins.createBuffer(11)
+    const st = pins.createBuffer(13)
     st.setNumber(NumberFormat.UInt8LE, 0, MSG_STATUS)
     st.setNumber(NumberFormat.Int32LE, 1, ticksLeft)
     st.setNumber(NumberFormat.Int32LE, 5, ticksRight)
@@ -313,6 +322,10 @@ basic.forever(function () {
     if (scanning) flags += 1
     if (input.runningTime() < testUntilMs) flags += 2
     st.setNumber(NumberFormat.UInt8LE, 10, flags)
+    // diagnostic: raw wheel-sensor pins (bit0 = P14, bit1 = P15) and the
+    // whole I/O expander byte (older boards have the wheel sensors there)
+    st.setNumber(NumberFormat.UInt8LE, 11, rawLeft + 2 * rawRight)
+    st.setNumber(NumberFormat.UInt8LE, 12, expander)
     radio.sendBuffer(st)
     basic.pause(STATUS_INTERVAL_MS)
 })
