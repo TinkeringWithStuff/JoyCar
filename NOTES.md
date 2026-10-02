@@ -1,6 +1,6 @@
 # Joy-Car sonar mapper — project notes
 
-Last updated: 2026-10-02
+Last updated: 2026-10-02 (end of afternoon session)
 
 ## Goal
 
@@ -68,8 +68,16 @@ All are MakeCode JavaScript. Extensions: car = "Joy-Car"; controller =
 - **In progress (step 3a):** wheel calibration. First attempts gave 0 ticks:
   the code assumed a rev 1.3 board (sensors on P14/P15), but this board is
   older and the sensors are on the I/O expander. Ticks are now counted by
-  polling the expander. Needs testing: 6 straight runs at 30/50/70 % (measure
-  distance; checks that no ticks are missed at speed) + 2 spins of 360°.
+  polling the expander (bits 0/1) - but the 2026-10-02 runs at 30/50/70 %
+  STILL gave 0 ticks.
+- **Next diagnostic (open):** car lifted, watch the raw line on the
+  calibration screen (`WL:x WR:x X:bbbbbbbb`, X = expander bits 7..0) while
+  (1) turning each wheel slowly by hand, (2) covering each obstacle sensor.
+  - X changes for obstacle sensors but not wheels -> wheel sensors not giving
+    a signal (plugging/socket/adjustment; check for LEDs that blink).
+  - X changes for wheels on other bits -> fix the bit numbers.
+  - X never changes -> the expander read itself is failing.
+  Also check whether the wheel sensors have LEDs that blink as the wheel turns.
 - Next: step 3b — position and heading from the ticks, map in a fixed room
   frame; step 3c — place each scan (and obstacle-sensor hits) on that map.
 
