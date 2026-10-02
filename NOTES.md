@@ -14,10 +14,10 @@ an automatic "scan area" mode, and saved maps the car can locate itself in.
 
 | Part | Details |
 | --- | --- |
-| Car | Joy-IT Joy-Car, micro:bit **v1**, mainboard assumed rev **1.3** (not yet confirmed) |
+| Car | Joy-IT Joy-Car, micro:bit **v1**, mainboard **older than rev 1.2** (no revision printed on the back) |
 | Controller | micro:bit **v2** in ELECFREAKS joystick:bit, Kitronik :VIEW 128x64 OLED in between |
 | Sonar | HC-SR04-type on servo 1 (P1). TRIG = P8, ECHO = P12 |
-| Wheel speed sensors | Slotted discs. Rev 1.3: left = P14, right = P15 |
+| Wheel speed sensors | Slotted discs, on the I/O expander (I2C 56): bit 0 = left, bit 1 = right. (Rev 1.3 boards use P14/P15 instead.) Polled about every 6 ms |
 | Obstacle sensors (IR) | Front left/right, on the I/O expander (I2C address 56), bit 5 = left, bit 6 = right, 0 = obstacle |
 | Motors | Via the Joy-Car PWM chip (I2C 112). `JoyCar.drivePwm(ch2, ch3, ch4, ch5)`: ch2 = right reverse, ch3 = right forward, ch4 = left reverse, ch5 = left forward |
 | OLED | I2C address 60 |
@@ -65,11 +65,11 @@ All are MakeCode JavaScript. Extensions: car = "Joy-Car"; controller =
 
 - Done: driving, scanning, radio transfer, OLED radar map (CLEAN view via
   "regions of constant depth", log scale), servo calibration.
-- **In progress (step 3a):** wheel calibration. First attempt gave 0 ticks,
-  because `JoyCar.obstacleavoidance()` reads P14/P15 as digital pins and that
-  disables the tick pulse events. Fixed by reading the obstacle sensors
-  straight from the I/O expander. Needs re-testing: 6 straight runs (measure
-  distance) + 2 spins of 360°.
+- **In progress (step 3a):** wheel calibration. First attempts gave 0 ticks:
+  the code assumed a rev 1.3 board (sensors on P14/P15), but this board is
+  older and the sensors are on the I/O expander. Ticks are now counted by
+  polling the expander. Needs testing: 6 straight runs at 30/50/70 % (measure
+  distance; checks that no ticks are missed at speed) + 2 spins of 360°.
 - Next: step 3b — position and heading from the ticks, map in a fixed room
   frame; step 3c — place each scan (and obstacle-sensor hits) on that map.
 
@@ -95,4 +95,5 @@ Ideas for later are kept in a separate doc ("Joy-Car mapper – ideas for later"
 - Sonar physics: a flat wall is only seen at its closest point (mirror-like
   reflection); the beam is ~20–30° wide. Hence the CLEAN view, and the plan to
   combine scans from several positions.
-- Never call Joy-Car library functions that read P14/P15 while counting ticks.
+- Check the mainboard revision before relying on pin maps: no number printed = older than 1.2.
+- On rev 1.3 boards, Joy-Car library functions that read P14/P15 would disable pulse events on those pins.

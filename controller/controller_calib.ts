@@ -5,6 +5,8 @@
 //
 // Part 1, distance (6 runs):
 //   C  = drive straight 3 s (forward, then backward, alternating).
+//        Runs 1-2 at 30 %, 3-4 at 50 %, 5-6 at 70 % power, to check that
+//        no wheel ticks are missed at higher speed.
 //        When the car has stopped: measure how far it went, then C again.
 // Part 2, turning (2 spins: left, then right):
 //   Line the car up with a line on the floor, press C to start.
@@ -23,7 +25,7 @@ const MSG_RESET_ODO = 9
 const MSG_TEST_DRIVE = 10
 
 const DIST_RUNS = 6
-const RUN_SPEED = 50          // % motor power for the straight runs
+const RUN_SPEEDS = [30, 30, 50, 50, 70, 70]   // % motor power per run
 const RUN_TENTHS = 30         // 3.0 s
 const SPIN_SPEED = 40         // % motor power while D is held
 const SETTLE_MS = 700         // wait for the car to roll to a stop
@@ -51,7 +53,7 @@ const centreY = joystickbit.getRockerValue(joystickbit.rockerType.Y)
 let ticksLeft = 0
 let ticksRight = 0
 let carFlags = 0
-let rawPins = 0          // diagnostic: bit0 = P14, bit1 = P15 on the car
+let rawPins = 0          // diagnostic: bit0 = left wheel sensor, bit1 = right
 let expanderByte = 0     // diagnostic: the car's I/O expander, all 8 bits
 let logLines: string[] = []
 let lastStatusMs = -10000
@@ -125,7 +127,8 @@ joystickbit.onButtonEvent(joystickbit.JoystickBitPin.P12, joystickbit.ButtonType
     if (state == S_DIST_READY) {
         resetOdo()
         basic.pause(100)
-        const p = runIsForward() ? RUN_SPEED : -RUN_SPEED
+        const speed = RUN_SPEEDS[runNo - 1]
+        const p = runIsForward() ? speed : -speed
         // sent three times in case one packet is lost (only extends the run by a few ms)
         testDrive(p, p, RUN_TENTHS)
         basic.pause(20)
@@ -208,7 +211,7 @@ basic.forever(function () {
         const finished = seenTestFlag && (carFlags & 2) == 0
         if (finished || elapsed > RUN_TENTHS * 100 + 2000) {
             basic.pause(SETTLE_MS)                 // let it roll to a stop
-            logResult("run," + runNo + "," + (runIsForward() ? "fwd" : "back") + "," + ticksLeft + "," + ticksRight)
+            logResult("run," + runNo + "," + (runIsForward() ? "fwd" : "back") + "," + RUN_SPEEDS[runNo - 1] + "%," + ticksLeft + "," + ticksRight)
             state = S_DIST_DONE
         }
     }
@@ -223,7 +226,7 @@ basic.forever(function () {
     let msg = ""
     let hint = ""
     if (state <= S_DIST_DONE) {
-        title = "DISTANCE run " + runNo + "/" + DIST_RUNS + " " + (runIsForward() ? "FWD" : "BACK")
+        title = "RUN " + runNo + "/" + DIST_RUNS + " " + (runIsForward() ? "FWD " : "BACK ") + RUN_SPEEDS[runNo - 1] + "%"
         if (state == S_DIST_READY) {
             msg = runNo == 1 ? "Car at start mark" : "Mark where it is"
             hint = "C = drive 3 s"
@@ -255,8 +258,8 @@ basic.forever(function () {
         kitronik_VIEW128x64.show(padRight("", 25), 5)
     } else {
         kitronik_VIEW128x64.show(padRight("L" + ticksLeft + " R" + ticksRight, 12), 2, leftAlign, big)
-        // raw: wheel pins P14/P15, then the I/O expander bits 7..0
-        kitronik_VIEW128x64.show(padRight("P14:" + (rawPins & 1) + " P15:" + ((rawPins >> 1) & 1) + " X:" + bits8(expanderByte), 25), 5)
+        // raw: wheel sensors left/right, then the I/O expander bits 7..0
+        kitronik_VIEW128x64.show(padRight("WL:" + (rawPins & 1) + " WR:" + ((rawPins >> 1) & 1) + " X:" + bits8(expanderByte), 25), 5)
     }
     kitronik_VIEW128x64.show(padRight(msg, 25), 7)
     kitronik_VIEW128x64.show(padRight(hint, 25), 8)

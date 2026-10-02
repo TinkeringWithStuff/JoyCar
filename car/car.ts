@@ -1,5 +1,5 @@
 // =====================================================================
-// CAR  -  micro:bit v1 in the Joy-Car  -  Step 3a: wheel ticks + IR status (diagnostic: polled ticks, raw pins)
+// CAR  -  micro:bit v1 in the Joy-Car  -  Step 3a: wheel ticks (via I/O expander) + obstacle sensors
 // MakeCode JavaScript. Extension needed: "Joy-Car" (joy-it/Joy-Car)
 //
 // Does:   drives from joystick packets,
@@ -44,14 +44,14 @@ const NO_DATA = 65535        // angle the servo cannot reach with this trim
 const LINK_TIMEOUT_MS = 300
 const STATUS_INTERVAL_MS = 100
 
-// Wheel speed sensors. On mainboard rev 1.3 they are wired to P14 / P15.
-// (On older boards they sit on the I/O expander instead - tell Claude if so.)
-const SPEED_LEFT = DigitalPin.P14
-const SPEED_RIGHT = DigitalPin.P15
+// Wheel speed sensors. This mainboard is older than rev 1.2, so they sit on
+// the I/O expander (I2C 56): bit 0 = left, bit 1 = right. (On rev 1.3 they
+// would be on P14/P15 instead.)
+const EXPANDER_ADDR = 56
 const TRIG = DigitalPin.P8
 const ECHO = DigitalPin.P12
 
-JoyCar.initJoyCar(RevisionMainboard.OnepThree)
+JoyCar.initJoyCar(RevisionMainboard.OnepOne)   // no revision printed on the board = older than 1.2
 radio.setGroup(RADIO_GROUP)
 radio.setTransmitPower(7)
 
@@ -279,22 +279,21 @@ basic.forever(function () {
     basic.pause(20)
 })
 
-// ---- Wheel ticks (DIAGNOSTIC version): poll the pins about every 1 ms and
-// count every change. Pull-ups on, in case the sensors only pull down.
-let rawLeft = pins.digitalReadPin(SPEED_LEFT)      // makes the pins digital inputs...
-let rawRight = pins.digitalReadPin(SPEED_RIGHT)
-pins.setPull(SPEED_LEFT, PinPullMode.PullUp)        // ...then the pull-ups stick
-pins.setPull(SPEED_RIGHT, PinPullMode.PullUp)
-rawLeft = pins.digitalReadPin(SPEED_LEFT)
-rawRight = pins.digitalReadPin(SPEED_RIGHT)
+// ---- Wheel ticks: poll the I/O expander and count every change of bit 0
+// (left) and bit 1 (right). pause(1) is about 6 ms on the v1, so very fast
+// driving may miss ticks - the calibration checks this at 30/50/70 %.
+let expander = pins.i2cReadNumber(EXPANDER_ADDR, NumberFormat.UInt8LE, false)
+let rawLeft = expander & 1
+let rawRight = (expander >> 1) & 1
 control.inBackground(function () {
     while (true) {
-        const l = pins.digitalReadPin(SPEED_LEFT)
+        expander = pins.i2cReadNumber(EXPANDER_ADDR, NumberFormat.UInt8LE, false)
+        const l = expander & 1
         if (l != rawLeft) {
             rawLeft = l
             ticksLeft += dirLeft
         }
-        const r = pins.digitalReadPin(SPEED_RIGHT)
+        const r = (expander >> 1) & 1
         if (r != rawRight) {
             rawRight = r
             ticksRight += dirRight
@@ -305,11 +304,8 @@ control.inBackground(function () {
 
 // ---- Status to the controller, 10 times a second (also while scanning) ----
 basic.forever(function () {
-    // Read the IR obstacle sensors straight from the I/O expander (I2C 56).
-    // NOT via JoyCar.obstacleavoidance(): on rev 1.3 that also reads P14/P15
-    // as plain digital pins, which switches off the wheel-tick pulse events.
-    // Bit 5 = left, bit 6 = right, 0 = obstacle (active low).
-    const expander = pins.i2cReadNumber(56, NumberFormat.UInt8LE, false)
+    // Obstacle sensors from the expander byte the tick loop just read:
+    // bit 5 = left, bit 6 = right, 0 = obstacle (active low).
     let irBits = 0
     if ((expander & 0x20) == 0) irBits += 1
     if ((expander & 0x40) == 0) irBits += 2
@@ -322,8 +318,8 @@ basic.forever(function () {
     if (scanning) flags += 1
     if (input.runningTime() < testUntilMs) flags += 2
     st.setNumber(NumberFormat.UInt8LE, 10, flags)
-    // diagnostic: raw wheel-sensor pins (bit0 = P14, bit1 = P15) and the
-    // whole I/O expander byte (older boards have the wheel sensors there)
+    // diagnostic: raw wheel-sensor bits (bit0 = left, bit1 = right) and the
+    // whole I/O expander byte
     st.setNumber(NumberFormat.UInt8LE, 11, rawLeft + 2 * rawRight)
     st.setNumber(NumberFormat.UInt8LE, 12, expander)
     radio.sendBuffer(st)
