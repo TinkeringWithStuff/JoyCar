@@ -76,12 +76,16 @@ All are MakeCode JavaScript. Extensions: car = "Joy-Car"; controller =
 - Done: driving, scanning, radio transfer, OLED radar map (CLEAN view via
   "regions of constant depth", log scale), servo calibration.
 - Done (step 3a): wheel calibration, values above.
-- **In progress (step 3b):** straight-line speed matching in the car
+- Done (step 3b, part 1): straight-line speed matching in the car
   (`drive()`): fixed left-power factor 0.92 forward / 0.85 backward, plus a
   correction of 12 % power per cm one wheel is ahead.
   - Round 2 (target L/R = 1.065): drift down from 8-28 cm to 4-10 cm; ticks
     held exactly at the target, so the target was wrong. Now target = equal
-    ticks (0.51 cm/tick both). Needs re-test.
+    ticks (0.51 cm/tick both).
+  - Round 3 (equal ticks): **drift 0-3 cm**, L/R within 2 ticks. Done.
+    Raw: fwd 50 % 98/96 50 cm (veer 2); back 50 % 80/78 39 (1); fwd 65 %
+    126/125 65 (0); back 65 % 101/100 52 (3); fwd 80 % 147/146 77 (1.5);
+    back 80 % 123/123 64 (3). cm/tick 0.49-0.53, mean ≈ 0.515.
   - Round 2 raw: fwd 50 % 104/97 51 cm (veer 4.5); back 50 % 80/74 41 (4);
     fwd 65 % 128/120 64 (8); back 65 % 110/103 54 (10); fwd 80 % 150/141 75
     (10); back 80 % 128/119 63 (9).
@@ -98,8 +102,9 @@ All are MakeCode JavaScript. Extensions: car = "Joy-Car"; controller =
   - X changes for wheels on other bits -> fix the bit numbers.
   - X never changes -> the expander read itself is failing.
   Also check whether the wheel sensors have LEDs that blink as the wheel turns.
-- Next: step 3b — position and heading from the ticks, map in a fixed room
-  frame; step 3c — place each scan (and obstacle-sensor hits) on that map.
+- **Next:** step 3b part 2 - position and heading from the ticks on the
+  controller, car drawn moving on a map in a fixed room frame; then step 3c -
+  place each scan (and obstacle-sensor hits) on that map.
 
 ## Roadmap
 
