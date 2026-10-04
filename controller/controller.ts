@@ -1,5 +1,5 @@
 // =====================================================================
-// CONTROLLER  -  micro:bit v2 in joystick:bit + Kitronik OLED  -  Step 2f
+// CONTROLLER  -  micro:bit v2 in joystick:bit + Kitronik OLED  -  Step 3b
 // MakeCode JavaScript. Extensions needed: "joystickbit", "128x64Display"
 //
 //   C  =  scan (5 deg steps, two passes - takes ~15-20 s)
@@ -7,8 +7,12 @@
 //         LOG shows 0..4 m with rings at 25 cm, 50 cm, 1 m, 2 m, 4 m.
 //         In the linear scales, auto-zoom picks one after each scan.
 //   D/E=  servo trim -1 / +1 deg
-//   A  =  (micro:bit) cycle view: CLEAN map -> RAW dots -> table 1 -> table 2
-//   B  =  (micro:bit) fake test scan
+//   A  =  (micro:bit) cycle view: CLEAN radar -> MAP -> RAW dots -> table 1 -> table 2
+//   B  =  (micro:bit) set the car's position to zero (start point) and clear the trail
+//
+// MAP view (step 3b): the car's position and heading, worked out from the
+// wheel ticks the car reports 10 times a second, on a fixed map of the room.
+// Arrow = car, dots = its trail, grid dots every 50 cm. F zooms 1/2/4/8 cm per pixel.
 //   A+B=  (micro:bit) show the car's current servo trim
 //
 // CLEAN view: each run of near-equal readings ("region of constant depth")
@@ -25,6 +29,7 @@ const MSG_SWEEP_REQUEST = 4
 const MSG_SWEEP_DATA = 5
 const MSG_SERVO_TRIM = 6
 const MSG_TRIM_VALUE = 7
+const MSG_STATUS = 8          // car: ticksLeft:int32, ticksRight:int32, ir, flags, ...
 
 const SCAN_STEP_DEG = 5
 const MAX_COUNT = 91
@@ -53,6 +58,19 @@ const VIEW_CLEAN = 0
 const VIEW_RAW = 1
 const VIEW_TABLE1 = 2
 const VIEW_TABLE2 = 3
+const VIEW_WORLD = 4
+// Order of views when pressing A
+const VIEW_ORDER = [VIEW_CLEAN, VIEW_WORLD, VIEW_RAW, VIEW_TABLE1, VIEW_TABLE2]
+
+// ---- Odometry (wheel calibration 2026-10-04, see NOTES.md) ----
+const CM_PER_TICK = 0.51
+const WHEEL_BASE_CM = 15.2
+const MAX_TICKS_PER_STATUS = 50   // bigger jumps = car restarted, ignored
+const TRAIL_STEP_CM = 3           // trail point every 3 cm
+const TRAIL_MAX = 400
+const WORLD_CM_PER_PX = [1, 2, 4, 8]
+const WORLD_SCREEN_CX = 64        // screen pixel of the view centre
+const WORLD_SCREEN_CY = 36
 
 radio.setGroup(RADIO_GROUP)
 radio.setTransmitPower(7)
@@ -79,9 +97,25 @@ let sweepsReceived = 0
 // ---- Display state (only the display loop touches the OLED) ----
 let rangeIndex = LOG_INDEX
 let viewMode = VIEW_CLEAN
+let viewIndex = 0                 // position in VIEW_ORDER
+
+// Car pose in the room: cm from the start point, heading in radians.
+// x = right, y = ahead (as seen at the start); heading PI/2 = start direction.
+let poseX = 0
+let poseY = 0
+let poseTh = Math.PI / 2
+let haveTicks = false
+let prevTicksL = 0
+let prevTicksR = 0
+let carIr = 0
+let trailX: number[] = []
+let trailY: number[] = []
+let worldZoom = 1                 // index into WORLD_CM_PER_PX
+let viewCx = 0                    // world cm shown at the view centre
+let viewCy = 0
 let testPattern = false
 let needRedraw = true
-let pendingStatus = "C scan  A view  F range"
+let pendingStatus = "C scan A view B zero pos"
 
 // ---- Frame buffer ----
 const frame = pins.createBuffer(1025)
@@ -279,6 +313,123 @@ function drawClean() {
     }
 }
 
+// ---- MAP view ----
+function worldX(x: number): number {
+    return Math.round(WORLD_SCREEN_CX + (x - viewCx) / WORLD_CM_PER_PX[worldZoom])
+}
+function worldY(y: number): number {
+    return Math.round(WORLD_SCREEN_CY - (y - viewCy) / WORLD_CM_PER_PX[worldZoom])
+}
+
+function headingDeg(): number {
+    // 0 = the direction the car faced at the start, + = turned left
+    let d = Math.round((poseTh - Math.PI / 2) * 180 / Math.PI) % 360
+    if (d > 180) d -= 360
+    if (d < -180) d += 360
+    return d
+}
+
+function drawWorld() {
+    const cpp = WORLD_CM_PER_PX[worldZoom]
+    // keep the car on screen: jump the view when it nears an edge
+    let cx = worldX(poseX)
+    let cy = worldY(poseY)
+    if (cx < 8 || cx > 119 || cy < 16 || cy > 56) {
+        viewCx = poseX
+        viewCy = poseY
+        cx = worldX(poseX)
+        cy = worldY(poseY)
+    }
+    frameClear()
+
+    // grid dots, fixed to the room
+    const grid = cpp >= 4 ? 100 : 50
+    const halfW = 64 * cpp
+    const halfH = 28 * cpp
+    let gx = Math.floor((viewCx - halfW) / grid) * grid
+    while (gx <= viewCx + halfW) {
+        let gy = Math.floor((viewCy - halfH) / grid) * grid
+        while (gy <= viewCy + halfH) {
+            setPx(worldX(gx), worldY(gy))
+            gy += grid
+        }
+        gx += grid
+    }
+
+    // start point: a small cross
+    const ox = worldX(0)
+    const oy = worldY(0)
+    setPx(ox - 1, oy)
+    setPx(ox + 1, oy)
+    setPx(ox, oy - 1)
+    setPx(ox, oy + 1)
+
+    // trail
+    for (let i = 0; i < trailX.length; i++) {
+        setPx(worldX(trailX[i]), worldY(trailY[i]))
+    }
+
+    // the car: an arrow pointing along its heading
+    const noseX = cx + 5 * Math.cos(poseTh)
+    const noseY = cy - 5 * Math.sin(poseTh)
+    const leftX = cx + 4 * Math.cos(poseTh + 2.5)
+    const leftY = cy - 4 * Math.sin(poseTh + 2.5)
+    const rightX = cx + 4 * Math.cos(poseTh - 2.5)
+    const rightY = cy - 4 * Math.sin(poseTh - 2.5)
+    drawLineXY(noseX, noseY, leftX, leftY)
+    drawLineXY(noseX, noseY, rightX, rightY)
+    drawLineXY(leftX, leftY, cx, cy)
+    drawLineXY(rightX, rightY, cx, cy)
+
+    framePush()
+    status("x" + Math.round(poseX) + " y" + Math.round(poseY) + " h" + headingDeg() + " " + cpp + "cm/px")
+}
+
+function resetPose() {
+    poseX = 0
+    poseY = 0
+    poseTh = Math.PI / 2
+    trailX = []
+    trailY = []
+    viewCx = 0
+    viewCy = 0
+}
+
+// Dead reckoning from the change in each wheel's tick count
+function updatePose(ticksL: number, ticksR: number) {
+    if (!haveTicks) {
+        prevTicksL = ticksL
+        prevTicksR = ticksR
+        haveTicks = true
+        return
+    }
+    const dl = ticksL - prevTicksL
+    const dr = ticksR - prevTicksR
+    prevTicksL = ticksL
+    prevTicksR = ticksR
+    if (dl == 0 && dr == 0) return
+    if (Math.abs(dl) > MAX_TICKS_PER_STATUS || Math.abs(dr) > MAX_TICKS_PER_STATUS) return
+    const sL = dl * CM_PER_TICK
+    const sR = dr * CM_PER_TICK
+    const ds = (sL + sR) / 2
+    const dth = (sR - sL) / WHEEL_BASE_CM
+    const mid = poseTh + dth / 2
+    poseX += ds * Math.cos(mid)
+    poseY += ds * Math.sin(mid)
+    poseTh += dth
+    // trail point every TRAIL_STEP_CM
+    const n = trailX.length
+    if (n == 0 || Math.abs(poseX - trailX[n - 1]) + Math.abs(poseY - trailY[n - 1]) >= TRAIL_STEP_CM) {
+        trailX.push(Math.round(poseX))
+        trailY.push(Math.round(poseY))
+        if (trailX.length > TRAIL_MAX) {
+            trailX.shift()
+            trailY.shift()
+        }
+    }
+    if (viewMode == VIEW_WORLD) needRedraw = true
+}
+
 function drawMap() {
     setScale()
     frameClear()
@@ -394,8 +545,17 @@ joystickbit.onButtonEvent(joystickbit.JoystickBitPin.P14, joystickbit.ButtonType
 })
 
 joystickbit.onButtonEvent(joystickbit.JoystickBitPin.P15, joystickbit.ButtonType.down, function () {
-    rangeIndex = (rangeIndex + 1) % (LOG_INDEX + 1)
-    if (viewMode >= VIEW_TABLE1) viewMode = VIEW_CLEAN
+    if (viewMode == VIEW_WORLD) {
+        worldZoom = (worldZoom + 1) % WORLD_CM_PER_PX.length
+        viewCx = poseX
+        viewCy = poseY
+    } else {
+        rangeIndex = (rangeIndex + 1) % (LOG_INDEX + 1)
+        if (viewMode == VIEW_TABLE1 || viewMode == VIEW_TABLE2) {
+            viewMode = VIEW_CLEAN
+            viewIndex = 0
+        }
+    }
     needRedraw = true
 })
 
@@ -405,26 +565,15 @@ input.onButtonPressed(Button.AB, function () {
 })
 
 input.onButtonPressed(Button.A, function () {
-    viewMode = (viewMode + 1) % 4
+    viewIndex = (viewIndex + 1) % VIEW_ORDER.length
+    viewMode = VIEW_ORDER[viewIndex]
     needRedraw = true
 })
 
-// Fake scan with the real step: a straight wall 70 cm ahead seen from
-// 50..130 deg, an object 30 cm to the right, one 40 cm to the left.
+// Set the car's position to zero and clear the trail
 input.onButtonPressed(Button.B, function () {
-    sweepStep = SCAN_STEP_DEG
-    sweepCount = Math.idiv(180, sweepStep) + 1
-    for (let i = 0; i < sweepCount; i++) {
-        const deg = i * sweepStep
-        let cm = 0
-        if (deg >= 50 && deg <= 130) cm = Math.round(70 / Math.sin(deg * Math.PI / 180))
-        if (deg <= 15) cm = 30
-        if (deg >= 165) cm = 40
-        sweepDist[i] = cm
-    }
-    receivedCount = sweepCount
-    testPattern = true
-    autoZoom()
+    resetPose()
+    pendingStatus = "Position set to zero"
     needRedraw = true
 })
 
@@ -433,6 +582,11 @@ radio.onReceivedBuffer(function (buf: Buffer) {
     if (buf.length < 2) return
     const msgType = buf.getNumber(NumberFormat.UInt8LE, 0)
 
+    if (msgType == MSG_STATUS && buf.length >= 11) {
+        carIr = buf.getNumber(NumberFormat.UInt8LE, 9)
+        updatePose(buf.getNumber(NumberFormat.Int32LE, 1), buf.getNumber(NumberFormat.Int32LE, 5))
+        return
+    }
     if (msgType == MSG_TRIM_VALUE) {
         pendingStatus = "Servo trim " + buf.getNumber(NumberFormat.Int8LE, 1) + " deg"
         return
@@ -505,6 +659,8 @@ basic.forever(function () {
             drawTable(0)
         } else if (viewMode == VIEW_TABLE2) {
             drawTable(1)
+        } else if (viewMode == VIEW_WORLD) {
+            drawWorld()
         } else {
             drawMap()
         }

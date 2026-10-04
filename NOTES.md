@@ -64,8 +64,12 @@ Radio payload limit in MakeCode: 19 bytes per packet.
 
 - `car/car.ts` — car (step 3b): driving with straight-line speed matching, 5° two-pass scan, servo trim, wheel
   tick counting, obstacle sensors, status messages, test drives.
-- `controller/controller.ts` — controller (step 2f): driving, scan request,
-  CLEAN / RAW map views, tables, log scale (default) + linear scales, auto-zoom.
+- `controller/controller.ts` — controller (step 3b): driving, scan request,
+  CLEAN / RAW radar views, tables, log scale (default) + linear scales,
+  auto-zoom, and the MAP view: position + heading from the wheel ticks
+  (dead reckoning), trail, 50 cm grid, zoom 1/2/4/8 cm per px.
+  Buttons: C scan, D/E servo trim, F range/zoom, A view
+  (CLEAN -> MAP -> RAW -> table 1 -> table 2), B zero position, A+B show trim.
 - `controller/controller_calib.ts` — guided wheel calibration tool (step 3a).
 
 All are MakeCode JavaScript. Extensions: car = "Joy-Car"; controller =
@@ -102,9 +106,12 @@ All are MakeCode JavaScript. Extensions: car = "Joy-Car"; controller =
   - X changes for wheels on other bits -> fix the bit numbers.
   - X never changes -> the expander read itself is failing.
   Also check whether the wheel sensors have LEDs that blink as the wheel turns.
-- **Next:** step 3b part 2 - position and heading from the ticks on the
-  controller, car drawn moving on a map in a fixed room frame; then step 3c -
-  place each scan (and obstacle-sensor hits) on that map.
+- **In progress:** step 3b part 2 - position tracking on the controller (MAP
+  view). Written, needs testing: drive a known square or out-and-back and
+  compare the end position/heading with reality.
+- Then step 3c - place each scan (and obstacle-sensor hits) on that map.
+- Pose convention: x = right, y = ahead at the start, heading 0 = start
+  direction, + = turned left.
 
 ## Roadmap
 
