@@ -8,7 +8,8 @@
 //         In the linear scales, auto-zoom picks one after each scan.
 //   D/E=  servo trim -1 / +1 deg; in the MAP view: D = spin test (360 left,
 //         360 right), E = square test (4 x 50 cm + 90 deg left). The car
-//         drives these by wheel ticks; touching the joystick cancels.
+//         drives these by wheel ticks and waits after each move: measure,
+//         then press C for the next one. Touching the joystick cancels.
 //   A  =  (micro:bit) cycle view: CLEAN radar -> MAP -> RAW dots -> table 1 -> table 2
 //   B  =  (micro:bit) set the car's position to zero (start point) and clear the trail
 //
@@ -125,6 +126,7 @@ let script: number[] = []
 let scriptPos = 0
 let scriptRunning = false
 let moveSent = false
+let scriptWaiting = false     // a move is done; waiting for C before the next
 let moveSeenRunning = false
 let moveSentMs = 0
 let moveDoneMs = 0
@@ -403,7 +405,10 @@ function drawWorld() {
     drawLineXY(rightX, rightY, cx, cy)
 
     framePush()
-    const testText = scriptRunning ? "T" + (scriptPos / 2 + 1) + "/" + (script.length / 2) + " " : ""
+    let testText = ""
+    if (scriptRunning) {
+        testText = scriptWaiting ? "C=next " : "T" + (scriptPos / 2 + 1) + "/" + (script.length / 2) + " "
+    }
     status(testText + "x" + Math.round(poseX) + " y" + Math.round(poseY) + " h" + headingDeg() + " " + cpp + "cm")
 }
 
@@ -551,6 +556,14 @@ function sendTrimNudge(nudge: number) {
 
 // ---- Buttons (flags only, no OLED access) ----
 joystickbit.onButtonEvent(joystickbit.JoystickBitPin.P12, joystickbit.ButtonType.down, function () {
+    // during a test, C means "measured - do the next move"
+    if (scriptRunning) {
+        if (scriptWaiting) {
+            scriptWaiting = false
+            needRedraw = true
+        }
+        return
+    }
     const req = pins.createBuffer(2)
     req.setNumber(NumberFormat.UInt8LE, 0, MSG_SWEEP_REQUEST)
     req.setNumber(NumberFormat.UInt8LE, 1, SCAN_STEP_DEG)
@@ -580,6 +593,7 @@ function startScript(moves: number[]) {
     script = moves
     scriptPos = 0
     moveSent = false
+    scriptWaiting = false
     scriptRunning = true
     needRedraw = true
 }
@@ -598,7 +612,7 @@ basic.forever(function () {
     if (scriptRunning) {
         const carMoving = (carFlags & 4) != 0
         if (!moveSent) {
-            if (input.runningTime() - moveDoneMs >= MOVE_SETTLE_MS) {
+            if (!scriptWaiting && input.runningTime() - moveDoneMs >= MOVE_SETTLE_MS) {
                 moveId = (moveId + 1) % 256
                 sendMove(script[scriptPos], script[scriptPos + 1])
                 moveSent = true
@@ -616,7 +630,10 @@ basic.forever(function () {
             if (scriptPos >= script.length) {
                 scriptRunning = false
                 pendingStatus = "TEST done h" + headingDeg()
+            } else {
+                scriptWaiting = true          // measure, then press C
             }
+            needRedraw = true
         } else if (input.runningTime() - moveSentMs > MOVE_RESEND_MS) {
             // not started yet: probably lost on the radio, send it again (same id)
             sendMove(script[scriptPos], script[scriptPos + 1])
