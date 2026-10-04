@@ -57,6 +57,7 @@ an automatic "scan area" mode, and saved maps the car can locate itself in.
 | 8 STATUS | car → ctrl | ticksLeft:int32LE, ticksRight:int32LE, ir:uint8, flags:uint8 (bit0 scanning, bit1 test drive), 10 per second |
 | 9 RESET_ODO | ctrl → car | 0 |
 | 10 TEST_DRIVE | ctrl → car | left:int8, right:int8, tenthsOfSecond:uint8 |
+| 11 MOVE | ctrl → car | id:uint8, kind:uint8 (0 straight cm, 1 turn deg, + = left), amount:int16LE, speed:uint8. Driven by wheel ticks; repeated id ignored; joystick cancels. STATUS flags bit2 = move running |
 
 Radio payload limit in MakeCode: 19 bytes per packet.
 
@@ -68,7 +69,8 @@ Radio payload limit in MakeCode: 19 bytes per packet.
   CLEAN / RAW radar views, tables, log scale (default) + linear scales,
   auto-zoom, and the MAP view: position + heading from the wheel ticks
   (dead reckoning), trail, 50 cm grid, zoom 1/2/4/8 cm per px.
-  Buttons: C scan, D/E servo trim, F range/zoom, A view
+  Buttons: C scan, D/E servo trim (in MAP view: D = spin test 360 left +
+  360 right, E = square test 4 x 50 cm + 90 left), F range/zoom, A view
   (CLEAN -> MAP -> RAW -> table 1 -> table 2), B zero position, A+B show trim.
 - `controller/controller_calib.ts` — guided wheel calibration tool (step 3a).
 
@@ -107,8 +109,10 @@ All are MakeCode JavaScript. Extensions: car = "Joy-Car"; controller =
   - X never changes -> the expander read itself is failing.
   Also check whether the wheel sensors have LEDs that blink as the wheel turns.
 - **In progress:** step 3b part 2 - position tracking on the controller (MAP
-  view). Written, needs testing: drive a known square or out-and-back and
-  compare the end position/heading with reality.
+  view). Written, needs testing with the tick-driven test programs: compare
+  where the car really ends up (tape measure) with what the map shows. The
+  map always shows the commanded path; the real difference is the odometry
+  error (spin test -> wheel base value).
 - Then step 3c - place each scan (and obstacle-sensor hits) on that map.
 - Pose convention: x = right, y = ahead at the start, heading 0 = start
   direction, + = turned left.

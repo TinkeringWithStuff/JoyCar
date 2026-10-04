@@ -1,5 +1,5 @@
 // =====================================================================
-// CAR  -  micro:bit v1 in the Joy-Car  -  Step 3b: wheel ticks + straight-line speed matching
+// CAR  -  micro:bit v1 in the Joy-Car  -  Step 3b: wheel ticks, straight-line matching, moves by ticks
 // MakeCode JavaScript. Extension needed: "Joy-Car" (joy-it/Joy-Car)
 //
 // Does:   drives from joystick packets,
@@ -20,9 +20,12 @@ const MSG_SERVO_TRIM = 6     // controller -> car : [6, nudge:int8]
 const MSG_TRIM_VALUE = 7     // car -> controller : [7, offset:int8]
 const MSG_STATUS = 8         // car -> controller : [8, left:int32LE, right:int32LE, ir:uint8, flags:uint8, rawPins:uint8, expander:uint8]
                              //   ir bit0 = left obstacle, bit1 = right obstacle
-                             //   flags bit0 = scanning, bit1 = test drive running
+                             //   flags bit0 = scanning, bit1 = test drive running, bit2 = move running
 const MSG_RESET_ODO = 9      // controller -> car : [9, 0]  set both tick counters to 0
 const MSG_TEST_DRIVE = 10    // controller -> car : [10, left:int8, right:int8, tenthsOfSecond:uint8]
+const MSG_MOVE = 11          // controller -> car : [11, id:uint8, kind:uint8, amount:int16LE, speed:uint8]
+                             //   kind 0 = straight (amount cm, + forward), 1 = turn on the spot (amount deg, + left)
+                             //   carried out by wheel ticks; a repeated id is ignored
                              //   drive the motors exactly like this for that long, ignoring the joystick
 
 // Servo calibration: added to every servo command so that 90 points
@@ -85,6 +88,20 @@ const STRAIGHT_KP = 12       // % power per cm one wheel is ahead
 const LEFT_POWER_FWD = 0.92
 const LEFT_POWER_BACK = 0.85
 const STRAIGHT_MAX = 30      // max correction, % power
+
+// Moves by wheel ticks (MSG_MOVE)
+const WHEEL_BASE_CM = 15.2
+const MOVE_TIMEOUT_MS = 10000
+const CANCEL_STICK = 30      // joystick deflection that cancels a move
+let moveActive = false
+let moveKind = 0
+let moveDir = 1
+let moveSpeed = 50
+let moveTargetTicks = 0
+let moveStartL = 0
+let moveStartR = 0
+let moveStartMs = 0
+let lastMoveId = -1
 let straightDir = 0          // +1 forward, -1 backward, 0 not driving straight
 let straightStartL = 0
 let straightStartR = 0
@@ -120,6 +137,26 @@ radio.onReceivedBuffer(function (buf: Buffer) {
     } else if (msgType == MSG_SWEEP_REQUEST) {
         requestedStep = buf.getNumber(NumberFormat.UInt8LE, 1)
         sweepRequested = true
+    } else if (msgType == MSG_MOVE && buf.length >= 6) {
+        const moveId = buf.getNumber(NumberFormat.UInt8LE, 1)
+        if (moveId != lastMoveId) {
+            lastMoveId = moveId
+            moveKind = buf.getNumber(NumberFormat.UInt8LE, 2)
+            const amount = buf.getNumber(NumberFormat.Int16LE, 3)
+            moveSpeed = buf.getNumber(NumberFormat.UInt8LE, 5)
+            moveDir = amount >= 0 ? 1 : -1
+            const size = Math.abs(amount)
+            if (moveKind == 0) {
+                moveTargetTicks = size / CM_PER_TICK_LEFT
+            } else {
+                // each wheel travels angle * half the wheel base
+                moveTargetTicks = (size * Math.PI / 180) * (WHEEL_BASE_CM / 2) / CM_PER_TICK_LEFT
+            }
+            moveStartL = ticksLeft
+            moveStartR = ticksRight
+            moveStartMs = input.runningTime()
+            moveActive = true
+        }
     } else if (msgType == MSG_TEST_DRIVE && buf.length >= 4) {
         testLeft = buf.getNumber(NumberFormat.Int8LE, 1)
         testRight = buf.getNumber(NumberFormat.Int8LE, 2)
@@ -314,7 +351,19 @@ basic.forever(function () {
         runSweep(requestedStep)
     }
     const linkOk = input.runningTime() - lastDriveMs < LINK_TIMEOUT_MS
-    if (input.runningTime() < testUntilMs) {
+    if (moveActive) {
+        const progress = (Math.abs(ticksLeft - moveStartL) + Math.abs(ticksRight - moveStartR)) / 2
+        const stickMoved = linkOk && Math.abs(driveX) + Math.abs(driveY) > CANCEL_STICK
+        if (stickMoved || progress >= moveTargetTicks || input.runningTime() - moveStartMs > MOVE_TIMEOUT_MS) {
+            moveActive = false
+            drive(0, 0)
+        } else if (moveKind == 0) {
+            drive(moveDir * moveSpeed, moveDir * moveSpeed)
+        } else {
+            drive(-moveDir * moveSpeed, moveDir * moveSpeed)   // + = left: left wheel back, right forward
+        }
+        led.plot(2, 2)
+    } else if (input.runningTime() < testUntilMs) {
         drive(testLeft, testRight)
         led.plot(2, 2)
     } else if (linkOk) {
@@ -365,6 +414,7 @@ basic.forever(function () {
     let flags = 0
     if (scanning) flags += 1
     if (input.runningTime() < testUntilMs) flags += 2
+    if (moveActive) flags += 4
     st.setNumber(NumberFormat.UInt8LE, 10, flags)
     // diagnostic: raw wheel-sensor bits (bit0 = left, bit1 = right) and the
     // whole I/O expander byte

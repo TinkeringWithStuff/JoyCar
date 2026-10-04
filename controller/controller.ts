@@ -6,7 +6,9 @@
 //   F  =  change scale: LOG (default) -> 50 -> 100 -> 200 -> 400 cm -> LOG
 //         LOG shows 0..4 m with rings at 25 cm, 50 cm, 1 m, 2 m, 4 m.
 //         In the linear scales, auto-zoom picks one after each scan.
-//   D/E=  servo trim -1 / +1 deg
+//   D/E=  servo trim -1 / +1 deg; in the MAP view: D = spin test (360 left,
+//         360 right), E = square test (4 x 50 cm + 90 deg left). The car
+//         drives these by wheel ticks; touching the joystick cancels.
 //   A  =  (micro:bit) cycle view: CLEAN radar -> MAP -> RAW dots -> table 1 -> table 2
 //   B  =  (micro:bit) set the car's position to zero (start point) and clear the trail
 //
@@ -30,6 +32,14 @@ const MSG_SWEEP_DATA = 5
 const MSG_SERVO_TRIM = 6
 const MSG_TRIM_VALUE = 7
 const MSG_STATUS = 8          // car: ticksLeft:int32, ticksRight:int32, ir, flags, ...
+const MSG_MOVE = 11           // [11, id, kind (0 straight cm / 1 turn deg, + = left), amount:int16LE, speed]
+
+// Test programs for the MAP view: pairs of (kind, amount)
+const MOVE_SPEED = 50
+const SPIN_TEST = [1, 360, 1, -360]
+const SQUARE_TEST = [0, 50, 1, 90, 0, 50, 1, 90, 0, 50, 1, 90, 0, 50, 1, 90]
+const MOVE_SETTLE_MS = 600        // pause after each move so the car comes to rest
+const MOVE_RESEND_MS = 500        // resend a move if the car has not started it
 
 const SCAN_STEP_DEG = 5
 const MAX_COUNT = 91
@@ -108,6 +118,17 @@ let haveTicks = false
 let prevTicksL = 0
 let prevTicksR = 0
 let carIr = 0
+let carFlags = 0
+
+// Running test program
+let script: number[] = []
+let scriptPos = 0
+let scriptRunning = false
+let moveSent = false
+let moveSeenRunning = false
+let moveSentMs = 0
+let moveDoneMs = 0
+let moveId = 0
 let trailX: number[] = []
 let trailY: number[] = []
 let worldZoom = 1                 // index into WORLD_CM_PER_PX
@@ -382,7 +403,8 @@ function drawWorld() {
     drawLineXY(rightX, rightY, cx, cy)
 
     framePush()
-    status("x" + Math.round(poseX) + " y" + Math.round(poseY) + " h" + headingDeg() + " " + cpp + "cm/px")
+    const testText = scriptRunning ? "T" + (scriptPos / 2 + 1) + "/" + (script.length / 2) + " " : ""
+    status(testText + "x" + Math.round(poseX) + " y" + Math.round(poseY) + " h" + headingDeg() + " " + cpp + "cm")
 }
 
 function resetPose() {
@@ -537,11 +559,71 @@ joystickbit.onButtonEvent(joystickbit.JoystickBitPin.P12, joystickbit.ButtonType
 })
 
 joystickbit.onButtonEvent(joystickbit.JoystickBitPin.P13, joystickbit.ButtonType.down, function () {
-    sendTrimNudge(-1)
+    if (viewMode == VIEW_WORLD) {
+        startScript(SPIN_TEST)
+    } else {
+        sendTrimNudge(-1)
+    }
 })
 
 joystickbit.onButtonEvent(joystickbit.JoystickBitPin.P14, joystickbit.ButtonType.down, function () {
-    sendTrimNudge(1)
+    if (viewMode == VIEW_WORLD) {
+        startScript(SQUARE_TEST)
+    } else {
+        sendTrimNudge(1)
+    }
+})
+
+// ---- Test programs: the car drives each move by its wheel ticks ----
+function startScript(moves: number[]) {
+    resetPose()
+    script = moves
+    scriptPos = 0
+    moveSent = false
+    scriptRunning = true
+    needRedraw = true
+}
+
+function sendMove(kind: number, amount: number) {
+    const b = pins.createBuffer(6)
+    b.setNumber(NumberFormat.UInt8LE, 0, MSG_MOVE)
+    b.setNumber(NumberFormat.UInt8LE, 1, moveId)
+    b.setNumber(NumberFormat.UInt8LE, 2, kind)
+    b.setNumber(NumberFormat.Int16LE, 3, amount)
+    b.setNumber(NumberFormat.UInt8LE, 5, MOVE_SPEED)
+    radio.sendBuffer(b)
+}
+
+basic.forever(function () {
+    if (scriptRunning) {
+        const carMoving = (carFlags & 4) != 0
+        if (!moveSent) {
+            if (input.runningTime() - moveDoneMs >= MOVE_SETTLE_MS) {
+                moveId = (moveId + 1) % 256
+                sendMove(script[scriptPos], script[scriptPos + 1])
+                moveSent = true
+                moveSeenRunning = false
+                moveSentMs = input.runningTime()
+                pendingStatus = "TEST move " + (scriptPos / 2 + 1) + "/" + (script.length / 2)
+            }
+        } else if (carMoving) {
+            moveSeenRunning = true
+        } else if (moveSeenRunning) {
+            // move finished
+            moveSent = false
+            moveDoneMs = input.runningTime()
+            scriptPos += 2
+            if (scriptPos >= script.length) {
+                scriptRunning = false
+                pendingStatus = "TEST done h" + headingDeg()
+            }
+        } else if (input.runningTime() - moveSentMs > MOVE_RESEND_MS) {
+            // not started yet: probably lost on the radio, send it again (same id)
+            sendMove(script[scriptPos], script[scriptPos + 1])
+            moveSentMs = input.runningTime()
+        }
+    }
+    basic.pause(50)
 })
 
 joystickbit.onButtonEvent(joystickbit.JoystickBitPin.P15, joystickbit.ButtonType.down, function () {
@@ -584,6 +666,7 @@ radio.onReceivedBuffer(function (buf: Buffer) {
 
     if (msgType == MSG_STATUS && buf.length >= 11) {
         carIr = buf.getNumber(NumberFormat.UInt8LE, 9)
+        carFlags = buf.getNumber(NumberFormat.UInt8LE, 10)
         updatePose(buf.getNumber(NumberFormat.Int32LE, 1), buf.getNumber(NumberFormat.Int32LE, 5))
         return
     }
@@ -628,6 +711,11 @@ kitronik_VIEW128x64.clear()
 basic.forever(function () {
     const sx = axis(joystickbit.getRockerValue(joystickbit.rockerType.X), centreX, INVERT_X)
     const sy = axis(joystickbit.getRockerValue(joystickbit.rockerType.Y), centreY, INVERT_Y)
+    // touching the stick cancels a running test (the car stops its move too)
+    if (scriptRunning && Math.abs(sx) + Math.abs(sy) > 30) {
+        scriptRunning = false
+        pendingStatus = "TEST cancelled"
+    }
     const drv = pins.createBuffer(3)
     drv.setNumber(NumberFormat.UInt8LE, 0, MSG_DRIVE)
     drv.setNumber(NumberFormat.Int8LE, 1, sx)
