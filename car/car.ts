@@ -1,5 +1,5 @@
 // =====================================================================
-// CAR  -  micro:bit v1 in the Joy-Car  -  Step 3a: wheel ticks (via I/O expander) + obstacle sensors
+// CAR  -  micro:bit v1 in the Joy-Car  -  Step 3b: wheel ticks + straight-line speed matching
 // MakeCode JavaScript. Extension needed: "Joy-Car" (joy-it/Joy-Car)
 //
 // Does:   drives from joystick packets,
@@ -70,6 +70,23 @@ let ticksRight = 0
 let dirLeft = 1
 let dirRight = 1
 
+// Wheel calibration (measured 2026-10-04, see NOTES.md)
+const CM_PER_TICK_LEFT = 0.480
+const CM_PER_TICK_RIGHT = 0.511
+
+// Straight-line speed matching: while left and right are commanded equal,
+// compare how far each wheel has travelled since the straight stretch began
+// and shift power from the wheel that is ahead to the one that is behind.
+const STRAIGHT_KP = 12       // % power per cm one wheel is ahead
+// Fixed starting correction from the calibration: at equal power the left
+// wheel travelled ~9 % further forward and ~18 % further backward.
+const LEFT_POWER_FWD = 0.92
+const LEFT_POWER_BACK = 0.85
+const STRAIGHT_MAX = 30      // max correction, % power
+let straightDir = 0          // +1 forward, -1 backward, 0 not driving straight
+let straightStartL = 0
+let straightStartR = 0
+
 // Test drive (calibration): fixed motor command until testUntilMs
 let testUntilMs = 0
 let testLeft = 0
@@ -127,6 +144,35 @@ function reachable(angle: number): boolean {
 
 function servoTo(angle: number) {
     JoyCar.servo(1, Math.constrain(angle + servoOffset, 0, 180))
+}
+
+// Drive with straight-line correction when left == right
+function drive(left: number, right: number) {
+    if (left != 0 && left == right) {
+        const dir = left > 0 ? 1 : -1
+        if (dir != straightDir) {
+            straightDir = dir
+            straightStartL = ticksLeft
+            straightStartR = ticksRight
+        }
+        // > 0 means the left wheel has travelled further
+        const aheadCm = dir * ((ticksLeft - straightStartL) * CM_PER_TICK_LEFT - (ticksRight - straightStartR) * CM_PER_TICK_RIGHT)
+        const corr = Math.constrain(aheadCm * STRAIGHT_KP, -STRAIGHT_MAX, STRAIGHT_MAX)
+        let l = left * (dir > 0 ? LEFT_POWER_FWD : LEFT_POWER_BACK) - dir * corr
+        let r = right + dir * corr
+        // never let the correction reverse a wheel
+        if (dir > 0) {
+            l = Math.max(l, 0)
+            r = Math.max(r, 0)
+        } else {
+            l = Math.min(l, 0)
+            r = Math.min(r, 0)
+        }
+        setMotors(Math.round(l), Math.round(r))
+    } else {
+        straightDir = 0
+        setMotors(left, right)
+    }
 }
 
 function setMotors(left: number, right: number) {
@@ -267,13 +313,13 @@ basic.forever(function () {
     }
     const linkOk = input.runningTime() - lastDriveMs < LINK_TIMEOUT_MS
     if (input.runningTime() < testUntilMs) {
-        setMotors(testLeft, testRight)
+        drive(testLeft, testRight)
         led.plot(2, 2)
     } else if (linkOk) {
-        setMotors(driveY + driveX, driveY - driveX)
+        drive(driveY + driveX, driveY - driveX)
         led.plot(2, 2)
     } else {
-        setMotors(0, 0)
+        drive(0, 0)
         led.unplot(2, 2)
     }
     basic.pause(20)
@@ -281,7 +327,7 @@ basic.forever(function () {
 
 // ---- Wheel ticks: poll the I/O expander and count every change of bit 0
 // (left) and bit 1 (right). pause(1) is about 6 ms on the v1, so very fast
-// driving may miss ticks - the calibration checks this at 30/50/70 %.
+// driving may miss a few ticks (cm/tick drops ~6 % from 50 % to 80 % power).
 let expander = pins.i2cReadNumber(EXPANDER_ADDR, NumberFormat.UInt8LE, false)
 let rawLeft = expander & 1
 let rawRight = (expander >> 1) & 1

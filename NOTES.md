@@ -32,8 +32,18 @@ an automatic "scan area" mode, and saved maps the car can locate itself in.
 - Joystick X is inverted (`INVERT_X = true` in controller code).
 - Distances are whole cm. In scan data: 0 = no echo, −1 = not received
   (controller side), −2 / 65535 = angle out of servo reach.
-- Wheel ticks per cm, ticks per 360° turn: **not yet measured** (see next step).
-- Known: the car drifts slightly to the right with equal power on both wheels.
+- Wheel calibration (2026-10-04, 6 timed runs at 50/65/80 % + one 720° spin):
+  - **0.480 cm per tick left, 0.511 cm per tick right** (≈ 2.1 ticks/cm; a
+    tick = one edge of the slotted disc).
+  - **Effective wheel base ≈ 14.8 cm**; about 93 ticks per wheel per 360° spin.
+  - cm/tick drops ~6 % from 50 % to 80 % power (missed ticks or slip):
+    prefer ≤ 65 % while mapping.
+  - At equal power the left motor is faster: L/R ticks 1.13–1.18 forward,
+    1.19–1.31 backward. Car veers right going forward, left going backward.
+  - One motor will not start at 30 % power; 50 % works.
+  - Raw data: fwd 50 % 110/97 ticks 51 cm (veer 9.5); back 50 % 111/85 47.5 cm
+    (13); fwd 65 % 139/118 61 cm (8); back 65 % 127/100 54 cm (17); fwd 80 %
+    162/138 70.5 cm (28); back 80 % 151/127 64 cm (11); spin right 720° 218/−156.
 
 ## Radio protocol (group 42)
 
@@ -52,7 +62,7 @@ Radio payload limit in MakeCode: 19 bytes per packet.
 
 ## Current code
 
-- `car/car.ts` — car (step 3a): driving, 5° two-pass scan, servo trim, wheel
+- `car/car.ts` — car (step 3b): driving with straight-line speed matching, 5° two-pass scan, servo trim, wheel
   tick counting, obstacle sensors, status messages, test drives.
 - `controller/controller.ts` — controller (step 2f): driving, scan request,
   CLEAN / RAW map views, tables, log scale (default) + linear scales, auto-zoom.
@@ -65,7 +75,12 @@ All are MakeCode JavaScript. Extensions: car = "Joy-Car"; controller =
 
 - Done: driving, scanning, radio transfer, OLED radar map (CLEAN view via
   "regions of constant depth", log scale), servo calibration.
-- **In progress (step 3a):** wheel calibration. First attempts gave 0 ticks:
+- Done (step 3a): wheel calibration, values above.
+- **In progress (step 3b):** straight-line speed matching in the car
+  (`drive()`): fixed left-power factor 0.92 forward / 0.85 backward, plus a
+  correction of 12 % power per cm one wheel is ahead. Needs testing: repeat
+  calibration runs and check the sideways drift.
+- History of step 3a: First attempts gave 0 ticks:
   the code assumed a rev 1.3 board (sensors on P14/P15), but this board is
   older and the sensors are on the I/O expander. Ticks are now counted by
   polling the expander (bits 0/1) - but the 2026-10-02 runs at 30/50/70 %
