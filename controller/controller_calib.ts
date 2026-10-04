@@ -5,7 +5,7 @@
 //
 // Part 1, distance (6 runs):
 //   C  = drive straight 3 s (forward, then backward, alternating).
-//        Runs 1-2 at 30 %, 3-4 at 50 %, 5-6 at 70 % power, to check that
+//        Runs 1-2 at 50 %, 3-4 at 65 %, 5-6 at 80 % power, to check that
 //        no wheel ticks are missed at higher speed.
 //        When the car has stopped: measure how far it went, then C again.
 // Part 2, turning (2 spins: left, then right):
@@ -25,7 +25,7 @@ const MSG_RESET_ODO = 9
 const MSG_TEST_DRIVE = 10
 
 const DIST_RUNS = 6
-const RUN_SPEEDS = [30, 30, 50, 50, 70, 70]   // % motor power per run
+const RUN_SPEEDS = [50, 50, 65, 65, 80, 80]   // % motor power per run (one motor will not start at 30 %)
 const RUN_TENTHS = 30         // 3.0 s
 const SPIN_SPEED = 40         // % motor power while D is held
 const SETTLE_MS = 700         // wait for the car to roll to a stop
