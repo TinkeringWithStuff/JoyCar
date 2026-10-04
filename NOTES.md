@@ -32,12 +32,12 @@ an automatic "scan area" mode, and saved maps the car can locate itself in.
 - Joystick X is inverted (`INVERT_X = true` in controller code).
 - Distances are whole cm. In scan data: 0 = no echo, −1 = not received
   (controller side), −2 / 65535 = angle out of servo reach.
-- Wheel calibration (2026-10-04, 6 timed runs at 50/65/80 % + one 720° spin):
-  - **0.480 cm per tick left, 0.511 cm per tick right** (≈ 2.1 ticks/cm; a
-    tick = one edge of the slotted disc).
-  - **Effective wheel base ≈ 14.8 cm**; about 93 ticks per wheel per 360° spin.
-  - cm/tick drops ~6 % from 50 % to 80 % power (missed ticks or slip):
-    prefer ≤ 65 % while mapping.
+- Wheel calibration (2026-10-04, two rounds of 6 timed runs + one 720° spin):
+  - **0.51 cm per tick, both wheels** (≈ 2 ticks/cm; a tick = one edge of the
+    slotted disc). Same at 50/65/80 % power, so no ticks are missed.
+    (A first fit gave 0.48 left / 0.511 right and a speed dependence - both
+    were artifacts of the car curving: chord shorter than the path.)
+  - **Effective wheel base ≈ 15.2 cm**; about 93 ticks per wheel per 360° spin.
   - At equal power the left motor is faster: L/R ticks 1.13–1.18 forward,
     1.19–1.31 backward. Car veers right going forward, left going backward.
   - One motor will not start at 30 % power; 50 % works.
@@ -78,8 +78,13 @@ All are MakeCode JavaScript. Extensions: car = "Joy-Car"; controller =
 - Done (step 3a): wheel calibration, values above.
 - **In progress (step 3b):** straight-line speed matching in the car
   (`drive()`): fixed left-power factor 0.92 forward / 0.85 backward, plus a
-  correction of 12 % power per cm one wheel is ahead. Needs testing: repeat
-  calibration runs and check the sideways drift.
+  correction of 12 % power per cm one wheel is ahead.
+  - Round 2 (target L/R = 1.065): drift down from 8-28 cm to 4-10 cm; ticks
+    held exactly at the target, so the target was wrong. Now target = equal
+    ticks (0.51 cm/tick both). Needs re-test.
+  - Round 2 raw: fwd 50 % 104/97 51 cm (veer 4.5); back 50 % 80/74 41 (4);
+    fwd 65 % 128/120 64 (8); back 65 % 110/103 54 (10); fwd 80 % 150/141 75
+    (10); back 80 % 128/119 63 (9).
 - History of step 3a: First attempts gave 0 ticks:
   the code assumed a rev 1.3 board (sensors on P14/P15), but this board is
   older and the sensors are on the I/O expander. Ticks are now counted by

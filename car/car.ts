@@ -70,9 +70,11 @@ let ticksRight = 0
 let dirLeft = 1
 let dirRight = 1
 
-// Wheel calibration (measured 2026-10-04, see NOTES.md)
-const CM_PER_TICK_LEFT = 0.480
-const CM_PER_TICK_RIGHT = 0.511
+// Wheel calibration (measured 2026-10-04, see NOTES.md): both wheels move
+// the same distance per tick; only the motors differ. So driving straight
+// means equal tick counts.
+const CM_PER_TICK_LEFT = 0.51
+const CM_PER_TICK_RIGHT = 0.51
 
 // Straight-line speed matching: while left and right are commanded equal,
 // compare how far each wheel has travelled since the straight stretch began
