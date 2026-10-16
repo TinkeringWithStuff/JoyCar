@@ -18,7 +18,7 @@ const MSG_SWEEP_REQUEST = 4  // controller -> car : [4, stepDeg]
 const MSG_SWEEP_DATA = 5     // car -> controller : [5, sweepId, firstIndex, count, stepDeg, dist:uint16LE * count]
 const MSG_SERVO_TRIM = 6     // controller -> car : [6, nudge:int8]
 const MSG_TRIM_VALUE = 7     // car -> controller : [7, offset:int8]
-const MSG_STATUS = 8         // car -> controller : [8, left:int32LE, right:int32LE, ir:uint8, flags:uint8, rawPins:uint8, expander:uint8]
+const MSG_STATUS = 8         // car -> controller : [8, left:int32LE, right:int32LE, ir:uint8, flags:uint8, rawPins:uint8, expander:uint8, moveResult:uint8]
                              //   ir bit0 = left obstacle, bit1 = right obstacle
                              //   flags bit0 = scanning, bit1 = test drive running, bit2 = move running
 const MSG_RESET_ODO = 9      // controller -> car : [9, 0]  set both tick counters to 0
@@ -102,6 +102,7 @@ let moveStartL = 0
 let moveStartR = 0
 let moveStartMs = 0
 let lastMoveId = -1
+let lastMoveResult = 0      // 0 none/running, 1 done, 2 cancelled by joystick, 3 timed out
 let straightDir = 0          // +1 forward, -1 backward, 0 not driving straight
 let straightStartL = 0
 let straightStartR = 0
@@ -156,6 +157,7 @@ radio.onReceivedBuffer(function (buf: Buffer) {
             moveStartR = ticksRight
             moveStartMs = input.runningTime()
             moveActive = true
+            lastMoveResult = 0
         }
     } else if (msgType == MSG_TEST_DRIVE && buf.length >= 4) {
         testLeft = buf.getNumber(NumberFormat.Int8LE, 1)
@@ -354,8 +356,10 @@ basic.forever(function () {
     if (moveActive) {
         const progress = (Math.abs(ticksLeft - moveStartL) + Math.abs(ticksRight - moveStartR)) / 2
         const stickMoved = linkOk && Math.abs(driveX) + Math.abs(driveY) > CANCEL_STICK
-        if (stickMoved || progress >= moveTargetTicks || input.runningTime() - moveStartMs > MOVE_TIMEOUT_MS) {
+        const timedOut = input.runningTime() - moveStartMs > MOVE_TIMEOUT_MS
+        if (stickMoved || progress >= moveTargetTicks || timedOut) {
             moveActive = false
+            lastMoveResult = stickMoved ? 2 : (progress >= moveTargetTicks ? 1 : 3)
             drive(0, 0)
         } else if (moveKind == 0) {
             drive(moveDir * moveSpeed, moveDir * moveSpeed)
@@ -406,7 +410,7 @@ basic.forever(function () {
     let irBits = 0
     if ((expander & 0x20) == 0) irBits += 1
     if ((expander & 0x40) == 0) irBits += 2
-    const st = pins.createBuffer(13)
+    const st = pins.createBuffer(14)
     st.setNumber(NumberFormat.UInt8LE, 0, MSG_STATUS)
     st.setNumber(NumberFormat.Int32LE, 1, ticksLeft)
     st.setNumber(NumberFormat.Int32LE, 5, ticksRight)
@@ -420,6 +424,7 @@ basic.forever(function () {
     // whole I/O expander byte
     st.setNumber(NumberFormat.UInt8LE, 11, rawLeft + 2 * rawRight)
     st.setNumber(NumberFormat.UInt8LE, 12, expander)
+    st.setNumber(NumberFormat.UInt8LE, 13, lastMoveResult)
     radio.sendBuffer(st)
     basic.pause(STATUS_INTERVAL_MS)
 })

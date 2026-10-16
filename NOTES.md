@@ -62,6 +62,7 @@ an automatic "scan area" mode, and saved maps the car can locate itself in.
 | 9 RESET_ODO | ctrl → car | 0 |
 | 10 TEST_DRIVE | ctrl → car | left:int8, right:int8, tenthsOfSecond:uint8 |
 | 11 MOVE | ctrl → car | id:uint8, kind:uint8 (0 straight cm, 1 turn deg, + = left), amount:int16LE, speed:uint8. Driven by wheel ticks; repeated id ignored; joystick cancels. STATUS flags bit2 = move running |
+| (STATUS byte 13) | car → ctrl | moveResult: why the last move ended - 1 done, 2 cancelled by joystick, 3 timed out (10 s) |
 
 Radio payload limit in MakeCode: 19 bytes per packet.
 
@@ -105,8 +106,10 @@ All are MakeCode JavaScript. Extensions: car = "Joy-Car"; controller =
   2026-10-04: turning the wheels by hand counts, obstacle sensors work).
   One motor will not start at 30 % power.
 - **In progress:** step 3b part 2 - position tracking on the controller (MAP
-  view). Spin test done (wheel base corrected to 14.8 cm); next the square
-  test. Written, needs testing with the tick-driven test programs: compare
+  view). Spin test done (wheel base corrected to 14.8 cm). First square
+  test 2026-10-16 stopped early (car turned slightly, then nothing) - cause
+  unknown (joystick cancel or 10 s timeout); the MAP status line now keeps
+  STICK n / TIMEOUT n / DONE after a test. Written, needs testing with the tick-driven test programs: compare
   where the car really ends up (tape measure) with what the map shows. The
   map always shows the commanded path; the real difference is the odometry
   error (spin test -> wheel base value).

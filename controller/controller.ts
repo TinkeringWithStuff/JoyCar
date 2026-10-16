@@ -120,6 +120,8 @@ let prevTicksL = 0
 let prevTicksR = 0
 let carIr = 0
 let carFlags = 0
+let carMoveResult = 0         // why the car's last move ended: 1 done, 2 joystick, 3 timeout
+let testNote = ""             // kept on the MAP status line after a test ends or stops
 
 // Running test program
 let script: number[] = []
@@ -405,7 +407,7 @@ function drawWorld() {
     drawLineXY(rightX, rightY, cx, cy)
 
     framePush()
-    let testText = ""
+    let testText = testNote
     if (scriptRunning) {
         testText = scriptWaiting ? "C=next " : "T" + (scriptPos / 2 + 1) + "/" + (script.length / 2) + " "
     }
@@ -595,6 +597,7 @@ function startScript(moves: number[]) {
     moveSent = false
     scriptWaiting = false
     scriptRunning = true
+    testNote = ""
     needRedraw = true
 }
 
@@ -623,15 +626,20 @@ basic.forever(function () {
         } else if (carMoving) {
             moveSeenRunning = true
         } else if (moveSeenRunning) {
-            // move finished
+            // move finished - but why?
             moveSent = false
             moveDoneMs = input.runningTime()
-            scriptPos += 2
-            if (scriptPos >= script.length) {
+            if (carMoveResult == 2 || carMoveResult == 3) {
                 scriptRunning = false
-                pendingStatus = "TEST done h" + headingDeg()
+                testNote = (carMoveResult == 2 ? "STICK " : "TIMEOUT ") + (scriptPos / 2 + 1) + " "
             } else {
-                scriptWaiting = true          // measure, then press C
+                scriptPos += 2
+                if (scriptPos >= script.length) {
+                    scriptRunning = false
+                    testNote = "DONE "
+                } else {
+                    scriptWaiting = true          // measure, then press C
+                }
             }
             needRedraw = true
         } else if (input.runningTime() - moveSentMs > MOVE_RESEND_MS) {
@@ -672,6 +680,7 @@ input.onButtonPressed(Button.A, function () {
 // Set the car's position to zero and clear the trail
 input.onButtonPressed(Button.B, function () {
     resetPose()
+    testNote = ""
     pendingStatus = "Position set to zero"
     needRedraw = true
 })
@@ -684,6 +693,7 @@ radio.onReceivedBuffer(function (buf: Buffer) {
     if (msgType == MSG_STATUS && buf.length >= 11) {
         carIr = buf.getNumber(NumberFormat.UInt8LE, 9)
         carFlags = buf.getNumber(NumberFormat.UInt8LE, 10)
+        if (buf.length >= 14) carMoveResult = buf.getNumber(NumberFormat.UInt8LE, 13)
         updatePose(buf.getNumber(NumberFormat.Int32LE, 1), buf.getNumber(NumberFormat.Int32LE, 5))
         return
     }
@@ -731,7 +741,8 @@ basic.forever(function () {
     // touching the stick cancels a running test (the car stops its move too)
     if (scriptRunning && Math.abs(sx) + Math.abs(sy) > 30) {
         scriptRunning = false
-        pendingStatus = "TEST cancelled"
+        testNote = "STICK " + (scriptPos / 2 + 1) + " "
+        needRedraw = true
     }
     const drv = pins.createBuffer(3)
     drv.setNumber(NumberFormat.UInt8LE, 0, MSG_DRIVE)
