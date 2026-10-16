@@ -75,7 +75,7 @@ const VIEW_ORDER = [VIEW_CLEAN, VIEW_WORLD, VIEW_RAW, VIEW_TABLE1, VIEW_TABLE2]
 
 // ---- Odometry (wheel calibration 2026-10-04, see NOTES.md) ----
 const CM_PER_TICK = 0.51
-const WHEEL_BASE_CM = 15.2
+const WHEEL_BASE_CM = 14.8         // from the spin test 2026-10-16 (was 15.2)
 const MAX_TICKS_PER_STATUS = 50   // bigger jumps = car restarted, ignored
 const TRAIL_STEP_CM = 3           // trail point every 3 cm
 const TRAIL_MAX = 400

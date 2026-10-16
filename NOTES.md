@@ -37,7 +37,11 @@ an automatic "scan area" mode, and saved maps the car can locate itself in.
     slotted disc). Same at 50/65/80 % power, so no ticks are missed.
     (A first fit gave 0.48 left / 0.511 right and a speed dependence - both
     were artifacts of the car curving: chord shorter than the path.)
-  - **Effective wheel base ≈ 15.2 cm**; about 93 ticks per wheel per 360° spin.
+  - **Effective wheel base 14.8 cm** (spin test 2026-10-16: two 360° turns by
+    ticks, map said 363° / 367°, wheels really went 2 cm too far = ~376°;
+    15.2 cm was 3 % too large). Measured wheel spacing centre-to-centre 14.5 cm.
+  - Moves by ticks overshoot ~3-7° per 360° (1-2 ticks of rolling after the
+    stop); the map counts these correctly.
   - At equal power the left motor is faster: L/R ticks 1.13–1.18 forward,
     1.19–1.31 backward. Car veers right going forward, left going backward.
   - One motor will not start at 30 % power; 50 % works.
@@ -101,7 +105,8 @@ All are MakeCode JavaScript. Extensions: car = "Joy-Car"; controller =
   2026-10-04: turning the wheels by hand counts, obstacle sensors work).
   One motor will not start at 30 % power.
 - **In progress:** step 3b part 2 - position tracking on the controller (MAP
-  view). Written, needs testing with the tick-driven test programs: compare
+  view). Spin test done (wheel base corrected to 14.8 cm); next the square
+  test. Written, needs testing with the tick-driven test programs: compare
   where the car really ends up (tape measure) with what the map shows. The
   map always shows the commanded path; the real difference is the odometry
   error (spin test -> wheel base value).

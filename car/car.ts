@@ -90,7 +90,7 @@ const LEFT_POWER_BACK = 0.85
 const STRAIGHT_MAX = 30      // max correction, % power
 
 // Moves by wheel ticks (MSG_MOVE)
-const WHEEL_BASE_CM = 15.2
+const WHEEL_BASE_CM = 14.8         // from the spin test 2026-10-16 (was 15.2)
 const MOVE_TIMEOUT_MS = 10000
 const CANCEL_STICK = 30      // joystick deflection that cancels a move
 let moveActive = false
