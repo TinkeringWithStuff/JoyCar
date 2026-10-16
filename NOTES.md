@@ -1,6 +1,6 @@
 # Joy-Car sonar mapper — project notes
 
-Last updated: 2026-10-02 (end of afternoon session)
+Last updated: 2026-10-16
 
 ## Goal
 
@@ -95,19 +95,11 @@ All are MakeCode JavaScript. Extensions: car = "Joy-Car"; controller =
   - Round 2 raw: fwd 50 % 104/97 51 cm (veer 4.5); back 50 % 80/74 41 (4);
     fwd 65 % 128/120 64 (8); back 65 % 110/103 54 (10); fwd 80 % 150/141 75
     (10); back 80 % 128/119 63 (9).
-- History of step 3a: First attempts gave 0 ticks:
-  the code assumed a rev 1.3 board (sensors on P14/P15), but this board is
-  older and the sensors are on the I/O expander. Ticks are now counted by
-  polling the expander (bits 0/1) - but the 2026-10-02 runs at 30/50/70 %
-  STILL gave 0 ticks.
-- **Next diagnostic (open):** car lifted, watch the raw line on the
-  calibration screen (`WL:x WR:x X:bbbbbbbb`, X = expander bits 7..0) while
-  (1) turning each wheel slowly by hand, (2) covering each obstacle sensor.
-  - X changes for obstacle sensors but not wheels -> wheel sensors not giving
-    a signal (plugging/socket/adjustment; check for LEDs that blink).
-  - X changes for wheels on other bits -> fix the bit numbers.
-  - X never changes -> the expander read itself is failing.
-  Also check whether the wheel sensors have LEDs that blink as the wheel turns.
+- History of step 3a: first attempts gave 0 ticks. The code assumed a rev 1.3
+  board (sensors on P14/P15), but this board is older and the sensors are on
+  the I/O expander (bits 0/1). Polling the expander fixed it (verified
+  2026-10-04: turning the wheels by hand counts, obstacle sensors work).
+  One motor will not start at 30 % power.
 - **In progress:** step 3b part 2 - position tracking on the controller (MAP
   view). Written, needs testing with the tick-driven test programs: compare
   where the car really ends up (tape measure) with what the map shows. The
